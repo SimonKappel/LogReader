@@ -27,7 +27,8 @@ import net.minecraft.text.MutableText;
 public class ExampleModClient implements ClientModInitializer {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("StatsReader");
-	private static long lastTabRefreshMs = 0;
+	private static long lastGlobalRefreshMs = 0;
+
 
 
 	// === API ===
@@ -91,41 +92,37 @@ public class ExampleModClient implements ClientModInitializer {
 
 		// 3) Auto-Finalize, wenn keine neuen Zeilen mehr kommen
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			if (!captureArmed) return;
 
-			long now = System.currentTimeMillis();
+			// ===== bestehende /stats Logik bleibt wie sie ist =====
+			if (captureArmed) {
+				long now = System.currentTimeMillis();
 
-			// Wenn /stats gedrückt wurde, aber Header kam nie -> abbrechen (4s)
-			if (!captureActive && now - lastLineAtMs > HEADER_TIMEOUT_MS) {
-				captureArmed = false;
-				LOGGER.info("Stats capture timed out (no header).");
-				chat("Keine Stats erkannt (Timeout).", Formatting.RED);
-				return;
+				if (!captureActive && now - lastLineAtMs > HEADER_TIMEOUT_MS) {
+					captureArmed = false;
+					chat("Keine Stats erkannt (Timeout).", Formatting.RED);
+					return;
+				}
+
+				if (captureActive && now - lastLineAtMs > FINALIZE_SILENCE_MS) {
+					captureArmed = false;
+					captureActive = false;
+					finalizeAndSend();
+				}
 			}
 
-			if (captureActive && now - lastLineAtMs > FINALIZE_SILENCE_MS) {
-				captureArmed = false;
-				captureActive = false;
-				finalizeAndSend();
-			}
-			// === TAB KD refresh alle 10s ===
+			// ===== NEU: globaler KD-Refresh alle 10 Sekunden =====
 			if (client.player == null || client.getNetworkHandler() == null) return;
 
-			boolean tabOpen = client.options.playerListKey.isPressed();
-			if (!tabOpen) return;
+			long now = System.currentTimeMillis();
+			if (now - lastGlobalRefreshMs < 10_000) return;
+			lastGlobalRefreshMs = now;
 
-			long now2 = System.currentTimeMillis();
-			if (now2 - lastTabRefreshMs < 10_000) return;
-			lastTabRefreshMs = now2;
-
-// alle Spieler, die im TAB stehen, refreshen (API)
 			for (var entry : client.getNetworkHandler().getPlayerList()) {
 				String name = entry.getProfile().getName();
-				StatsApi.tryFetchKdAsync(name, true); // force refresh
+				StatsApi.tryFetchKdAsync(name, true); // force refresh, aber rate-limited
 			}
-
-
 		});
+
 	}
 	private static MutableText prefix() {
 		return Text.literal("StatsReader").formatted(Formatting.AQUA)
@@ -209,11 +206,7 @@ public class ExampleModClient implements ClientModInitializer {
 		dto.put("capturedAtUtc", Instant.now().toString());
 		dto.put("source", "lunar-fabric-mod");
 
-// NICHT lokal speichern – aber TAB soll neu von API laden:
-		if (headerPlayer != null) {
-			StatsApi.invalidate(headerPlayer);
-			StatsApi.tryFetchKdAsync(headerPlayer, true);
-		}
+
 
 
 		String json = toJson(dto);
@@ -225,14 +218,21 @@ public class ExampleModClient implements ClientModInitializer {
 				.POST(HttpRequest.BodyPublishers.ofString(json));
 
 		if (!API_KEY.isBlank()) rb.header("X-Api-Key", API_KEY);
+		final String playerForRefresh = headerPlayer;
 
 		HTTP.sendAsync(rb.build(), HttpResponse.BodyHandlers.ofString())
 				.thenAccept(res -> {
 					LOGGER.info("API POST done: {} {}", res.statusCode(), res.body());
+
+					// nur bei Erfolg refreshen
+					if (res.statusCode() / 100 == 2 && playerForRefresh != null) {
+						StatsApi.invalidate(playerForRefresh);
+						StatsApi.tryFetchKdAsync(playerForRefresh, true);
+					}
+
 					var client = MinecraftClient.getInstance();
 					if (client.player != null) {
 						chat("Gesendet (" + res.statusCode() + ")", Formatting.GREEN);
-
 					}
 				})
 				.exceptionally(ex -> {
@@ -240,10 +240,10 @@ public class ExampleModClient implements ClientModInitializer {
 					var client = MinecraftClient.getInstance();
 					if (client.player != null) {
 						chat("API Fehler: " + ex.getClass().getSimpleName(), Formatting.RED);
-
 					}
 					return null;
 				});
+
 	}
 
 	// ---- Helpers ----
