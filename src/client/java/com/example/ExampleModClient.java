@@ -204,7 +204,7 @@ public class ExampleModClient implements ClientModInitializer {
 		dto.put("winRatePercent", winRatePercent);
 		dto.put("bedsDestroyed", bedsDestroyed);
 		dto.put("capturedAtUtc", Instant.now().toString());
-		dto.put("source", "lunar-fabric-mod");
+		dto.put("source", buildSource());
 
 
 
@@ -304,6 +304,33 @@ public class ExampleModClient implements ClientModInitializer {
 			return sb.toString();
 		}
 		return "\"" + esc(obj.toString()) + "\"";
+	}
+	private static String buildSource() {
+		MinecraftClient mc = MinecraftClient.getInstance();
+
+		String self =
+				mc.player != null
+						? mc.player.getGameProfile().getName()
+						: "unknown";
+
+		String mcVersion = mc.getGameVersion(); // z.B. 1.21.1
+		String modVersion = getModVersion();
+
+		return "LogReader"
+				+ ";self=" + self
+				+ ";mc=" + mcVersion
+				+ ";mod=" + modVersion;
+	}
+
+	private static String getModVersion() {
+		try {
+			return net.fabricmc.loader.api.FabricLoader.getInstance()
+					.getModContainer("logreader")
+					.map(m -> m.getMetadata().getVersion().getFriendlyString())
+					.orElse("unknown");
+		} catch (Exception e) {
+			return "unknown";
+		}
 	}
 
 	private static String esc(String s) {
