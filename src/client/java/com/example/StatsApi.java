@@ -116,14 +116,23 @@ public final class StatsApi {
         if (body == null) return null;
         String s = body.trim();
 
-        try { return Double.parseDouble(s.replace(",", ".")); }
-        catch (Exception ignored) {}
+        // Fall 1: API gibt nur Zahl zurück: "2.13"
+        try {
+            return Double.parseDouble(s.replace(",", "."));
+        } catch (Exception ignored) {}
 
-        var m = java.util.regex.Pattern.compile("(-?\\d+(?:[\\.,]\\d+)?)").matcher(s);
+        // Fall 2: JSON -> gezielt "kd": <number> extrahieren
+        var m = java.util.regex.Pattern
+                .compile("\"kd\"\\s*:\\s*(-?\\d+(?:[\\.,]\\d+)?)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(s);
+
         if (m.find()) {
-            try { return Double.parseDouble(m.group(1).replace(",", ".")); }
-            catch (Exception ignored) {}
+            try {
+                return Double.parseDouble(m.group(1).replace(",", "."));
+            } catch (Exception ignored) {}
         }
+
         return null;
     }
+
 }
