@@ -38,3 +38,9 @@ tasks.withType(JavaCompile).configureEach {
 java {
 	withSourcesJar()
 }
+jar {
+	archiveBaseName.set("statsreader")
+}
+tasks.named("remapJar") {
+	archiveBaseName.set("statsreader")
+}

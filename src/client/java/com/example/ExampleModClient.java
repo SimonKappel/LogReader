@@ -55,21 +55,24 @@ public class ExampleModClient implements ClientModInitializer {
 
 	// "== Statistiken von MineBreakerHD (30 Tage) =="
 	private static final Pattern HEADER_RX = Pattern.compile(
-			".*Statistiken von\\s+(?<player>.+?)\\s*\\((?<period>.+?)\\)\\s*.*",
+			".*statistiken von\\s+(?<player>[^\\(]+?)\\s*\\((?<period>[^\\)]+)\\).*",
 			Pattern.CASE_INSENSITIVE
 	);
+
 
 	// "Kills: 304"
 	private static final Pattern KV_RX = Pattern.compile("^\\s*(?<key>[^:]+)\\s*:\\s*(?<val>.+?)\\s*$");
 
 	@Override
 	public void onInitializeClient() {
-		LOGGER.info("HelloStats Mod loaded!");
 
+		LOGGER.info("HelloStats Mod loaded!");
+		ConfigManager.load();
+		ModCommands.register();
 		// 1) /stats im eigenen Input erkennen (command kommt OHNE Slash)
 		ClientSendMessageEvents.COMMAND.register(command -> {
-			String c = command.trim();
-			if (c.equalsIgnoreCase("stats") || c.toLowerCase().startsWith("stats ")) {
+			String c = command.trim().toLowerCase();;
+			if (c.equals("stats") || c.startsWith("stats ") || c.startsWith("statsd ")) {
 				captureArmed = true;
 				captureActive = false;
 				lastLineAtMs = System.currentTimeMillis();
@@ -103,11 +106,7 @@ public class ExampleModClient implements ClientModInitializer {
 					return;
 				}
 
-				if (captureActive && now - lastLineAtMs > FINALIZE_SILENCE_MS) {
-					captureArmed = false;
-					captureActive = false;
-					finalizeAndSend();
-				}
+
 			}
 
 			// ===== NEU: globaler KD-Refresh alle 10 Sekunden =====
@@ -119,7 +118,7 @@ public class ExampleModClient implements ClientModInitializer {
 
 			for (var entry : client.getNetworkHandler().getPlayerList()) {
 				String name = entry.getProfile().getName();
-				StatsApi.tryFetchKdAsync(name, true); // force refresh, aber rate-limited
+				StatsApi.tryFetchStatsAsync(name, true);
 			}
 		});
 
@@ -135,7 +134,16 @@ public class ExampleModClient implements ClientModInitializer {
 			client.player.sendMessage(prefix().append(Text.literal(msg).formatted(color)), false);
 		}
 	}
-
+	private static boolean hasAllFields() {
+		return rawFields.containsKey("Punkte")
+				&& rawFields.containsKey("Kills")
+				&& rawFields.containsKey("Deaths")
+				&& rawFields.containsKey("K/D")
+				&& rawFields.containsKey("Gespielte Spiele")
+				&& rawFields.containsKey("Gewonnene Spiele")
+				&& rawFields.containsKey("Siegesquote")
+				&& rawFields.containsKey("Zerstörte Betten");
+	}
 	private static void onIncomingLine(String line) {
 		if (!captureArmed) return;
 
@@ -156,6 +164,15 @@ public class ExampleModClient implements ClientModInitializer {
 
 		if (!captureActive) return;
 
+		// ✅ End-Marker: ----------------------
+		// (kommt am Ende der Stats-Ausgabe)
+		if (line.matches("^-{5,}$")) {
+			captureArmed = false;
+			captureActive = false;
+			finalizeAndSend();
+			return;
+		}
+
 		// Key/Value?
 		Matcher km = KV_RX.matcher(line);
 		if (km.matches()) {
@@ -165,7 +182,18 @@ public class ExampleModClient implements ClientModInitializer {
 		}
 	}
 
+
+
 	private static void finalizeAndSend() {
+		boolean send = shouldSendToApi(headerPeriod);
+
+		if (!send) {
+			// Nur im Chat ausgeben, nicht senden
+			chat("Stats erkannt, aber nicht an API gesendet!", Formatting.YELLOW);
+			chat("Grund: Zeitraum „" + headerPeriod + "“ wird nicht gespeichert.", Formatting.YELLOW);
+			return;
+		}
+
 		if (headerPlayer == null || rawFields.size() < 3) {
 			LOGGER.info("Finalize: not enough data (player={}, fields={})", headerPlayer, rawFields.size());
 			return;
@@ -227,7 +255,8 @@ public class ExampleModClient implements ClientModInitializer {
 					// nur bei Erfolg refreshen
 					if (res.statusCode() / 100 == 2 && playerForRefresh != null) {
 						StatsApi.invalidate(playerForRefresh);
-						StatsApi.tryFetchKdAsync(playerForRefresh, true);
+						StatsApi.tryFetchStatsAsync(playerForRefresh, true);
+
 					}
 
 					var client = MinecraftClient.getInstance();
@@ -316,7 +345,7 @@ public class ExampleModClient implements ClientModInitializer {
 		String mcVersion = mc.getGameVersion(); // z.B. 1.21.1
 		String modVersion = getModVersion();
 
-		return "LogReader"
+		return "LogReader Mod"
 				+ ";self=" + self
 				+ ";mc=" + mcVersion
 				+ ";mod=" + modVersion;
@@ -325,7 +354,8 @@ public class ExampleModClient implements ClientModInitializer {
 	private static String getModVersion() {
 		try {
 			return net.fabricmc.loader.api.FabricLoader.getInstance()
-					.getModContainer("logreader")
+					.getModContainer("statsreader")
+
 					.map(m -> m.getMetadata().getVersion().getFriendlyString())
 					.orElse("unknown");
 		} catch (Exception e) {
@@ -340,4 +370,17 @@ public class ExampleModClient implements ClientModInitializer {
 				.replace("\r", "\\r")
 				.replace("\t", "\\t");
 	}
+	private static boolean shouldSendToApi(String period) {
+		if (period == null) return false;
+		String p = period.trim().toLowerCase();
+
+		// 30 Tage
+		if (p.contains("30")) return true;
+
+		// ALL / Insgesamt (je nach Server-Text)
+		if (p.contains("all") || p.contains("insgesamt") || p.contains("gesamt")) return true;
+
+		return false;
+	}
+
 }
