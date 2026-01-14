@@ -3,7 +3,7 @@
   "package": "com.example.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "PlayerListHudMixin"
+    "PlayerListHudMixin",
   ],
   "injectors": {
     "defaultRequire": 1

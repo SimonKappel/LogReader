@@ -46,32 +46,113 @@ public final class ModCommands {
                                     })
                             )
                             .then(ClientCommandManager.literal("show")
-                                    .then(ClientCommandManager.argument("mode", StringArgumentType.word())
-                                            .suggests(ModCommands::suggestModes)
-
-
+                                    .then(ClientCommandManager.argument("modes", StringArgumentType.greedyString())
+                                            .suggests(ModCommands::suggestModesGreedy)
                                             .executes(ctx -> {
-                                                String modeStr = StringArgumentType.getString(ctx, "mode");
-                                                StatsApi.DisplayMode mode = parseMode(modeStr);
+                                                String raw = StringArgumentType.getString(ctx, "modes");
+                                                var parsed = parseModesList(raw);
 
-                                                if (mode == null) {
+                                                if (parsed == null || parsed.isEmpty()) {
                                                     ctx.getSource().sendFeedback(prefix()
                                                             .append(Text.literal("Unbekannt. Erlaubt: " + allowedModes())
                                                                     .formatted(Formatting.RED)));
                                                     return 0;
                                                 }
 
-                                                ConfigManager.setMode(mode);
+                                                ConfigManager.setModes(parsed);
+
+
                                                 ctx.getSource().sendFeedback(prefix()
-                                                        .append(Text.literal("Tab Anzeige: " + mode.name())
+                                                        .append(Text.literal("Tab Anzeige: " + parsed.stream().map(Enum::name).collect(Collectors.joining(", ")))
                                                                 .formatted(Formatting.AQUA)));
                                                 return 1;
                                             })
                                     )
                             )
+                            .then(ClientCommandManager.literal("add")
+                                    .then(ClientCommandManager.argument("mode", StringArgumentType.word())
+                                            .suggests(ModCommands::suggestModes)
+                                            .executes(ctx -> {
+                                                String modeStr = StringArgumentType.getString(ctx, "mode");
+                                                StatsApi.DisplayMode mode = parseMode(modeStr);
+
+                                                if (mode == null) {
+                                                    ctx.getSource().sendFeedback(prefix()
+                                                            .append(Text.literal("Unbekannt. Erlaubt: " + allowedModes()).formatted(Formatting.RED)));
+                                                    return 0;
+                                                }
+
+                                                ConfigManager.addMode(mode);
+
+
+                                                ctx.getSource().sendFeedback(prefix()
+                                                        .append(Text.literal("Hinzugefügt: " + mode.name()).formatted(Formatting.GREEN)));
+                                                return 1;
+                                            })
+                                    )
+                            )
+                            .then(ClientCommandManager.literal("remove")
+                                    .then(ClientCommandManager.argument("mode", StringArgumentType.word())
+                                            .suggests(ModCommands::suggestModes)
+                                            .executes(ctx -> {
+                                                String modeStr = StringArgumentType.getString(ctx, "mode");
+                                                StatsApi.DisplayMode mode = parseMode(modeStr);
+
+                                                if (mode == null) {
+                                                    ctx.getSource().sendFeedback(prefix()
+                                                            .append(Text.literal("Unbekannt. Erlaubt: " + allowedModes()).formatted(Formatting.RED)));
+                                                    return 0;
+                                                }
+
+                                                ConfigManager.removeMode(mode);
+
+
+                                                ctx.getSource().sendFeedback(prefix()
+                                                        .append(Text.literal("Entfernt: " + mode.name()).formatted(Formatting.YELLOW)));
+                                                return 1;
+                                            })
+                                    )
+                            )
+
             );
 
         });
+    }
+    private static CompletableFuture<Suggestions> suggestModesGreedy(
+            com.mojang.brigadier.context.CommandContext<?> ctx,
+            SuggestionsBuilder builder
+    ) {
+        // greedyString: wir schlagen das "nächste" Wort vor
+        String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+        String[] parts = remaining.split("\\s+");
+        String last = parts.length == 0 ? "" : parts[parts.length - 1];
+
+        for (StatsApi.DisplayMode mode : StatsApi.DisplayMode.values()) {
+            String name = mode.name().toLowerCase(Locale.ROOT);
+            if (name.startsWith(last)) {
+                builder.suggest(replaceLastToken(builder.getRemaining(), last, name));
+            }
+        }
+        return builder.buildFuture();
+    }
+
+    private static String replaceLastToken(String full, String last, String replacement) {
+        // full enthält die bisherigen tokens; wir ersetzen das letzte token
+        int idx = full.toLowerCase(Locale.ROOT).lastIndexOf(last.toLowerCase(Locale.ROOT));
+        if (idx < 0) return replacement;
+        return full.substring(0, idx) + replacement;
+    }
+
+    private static java.util.Set<StatsApi.DisplayMode> parseModesList(String raw) {
+        if (raw == null) return null;
+
+        var set = java.util.EnumSet.noneOf(StatsApi.DisplayMode.class);
+        for (String token : raw.split("[,\\s]+")) {
+            if (token.isBlank()) continue;
+            StatsApi.DisplayMode m = parseMode(token);
+            if (m != null) set.add(m);
+        }
+        return set;
     }
 
     // WICHTIG: MutableText, nicht Text

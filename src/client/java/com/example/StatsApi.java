@@ -15,11 +15,20 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.EnumSet;
+import java.util.Set;
 
 public final class StatsApi {
     private static final Logger LOGGER = LoggerFactory.getLogger("StatsReader");
     public static volatile boolean ENABLED = true;
-    public static volatile DisplayMode DISPLAY_MODE = DisplayMode.KD;
+
+
+    public static final Set<DisplayMode> DISPLAY_MODES = EnumSet.of(
+            DisplayMode.KD,
+            DisplayMode.WIN_RATE_PERCENT
+    );
+
+
 
     // NEU: Stats Endpoint
     private static final String STATS_ENDPOINT_TEMPLATE =
@@ -215,8 +224,8 @@ public final class StatsApi {
 
     // -------- value formatting for UI --------
 
-    public static String getDisplayLabel() {
-        return switch (DISPLAY_MODE) {
+    public static String getDisplayLabel(DisplayMode mode) {
+        return switch (mode) {
             case KD -> "K/D";
             case WIN_RATE_PERCENT -> "WR";
             case GAMES_PLAYED -> "GP";
@@ -229,11 +238,10 @@ public final class StatsApi {
         };
     }
 
-    /** Holt aus Stats den Wert als String (oder null wenn nicht vorhanden). */
-    public static String formatValue(PlayerStats st) {
+    public static String formatValue(DisplayMode mode, PlayerStats st) {
         if (st == null) return null;
 
-        return switch (DISPLAY_MODE) {
+        return switch (mode) {
             case KD -> st.kd == null ? null : String.format(java.util.Locale.US, "%.2f", st.kd);
             case WIN_RATE_PERCENT -> st.winRatePercent == null ? null : String.format(java.util.Locale.US, "%.2f%%", st.winRatePercent);
             case GAMES_PLAYED -> st.gamesPlayed == null ? null : String.valueOf(st.gamesPlayed);
@@ -245,4 +253,23 @@ public final class StatsApi {
             case BEDS_DESTROYED -> st.bedsDestroyed == null ? null : String.valueOf(st.bedsDestroyed);
         };
     }
+    public static String formatMultiLine(PlayerStats st) {
+        if (st == null) return null;
+
+        // feste Reihenfolge nach Enum-Order (oder du machst eine eigene Reihenfolge)
+        StringBuilder sb = new StringBuilder();
+
+        for (DisplayMode mode : DisplayMode.values()) {
+            if (!DISPLAY_MODES.contains(mode)) continue;
+
+            String v = formatValue(mode, st);
+            if (v == null) continue;
+
+            if (sb.length() > 0) sb.append(" | "); // oder "\n" wenn du mehrere Zeilen willst
+            sb.append(getDisplayLabel(mode)).append(": ").append(v);
+        }
+
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
 }

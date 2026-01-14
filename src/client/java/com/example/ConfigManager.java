@@ -8,8 +8,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.Set;
 
 public final class ConfigManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("StatsReader");
@@ -33,15 +35,32 @@ public final class ConfigManager {
         }
 
         boolean enabled = parseBool(p.getProperty("enabled"), true);
-        StatsApi.DisplayMode mode = parseMode(p.getProperty("displayMode"), StatsApi.DisplayMode.KD);
 
-        config = new ModConfig(enabled, mode);
+        // NEU: Multi-Modes (z.B. "KD,WIN_RATE_PERCENT")
+        Set<StatsApi.DisplayMode> modes = parseModes(p.getProperty("displayModes"));
+
+        // Migration: alte Config hatte nur "displayMode"
+        if (modes.isEmpty()) {
+            StatsApi.DisplayMode legacy = parseMode(p.getProperty("displayMode"), StatsApi.DisplayMode.KD);
+            modes.add(legacy);
+
+            // optional: wenn legacy KD ist, mach direkt KD+WR als default “upgrade”
+            // wenn du das nicht willst, kommentier die nächsten 2 Zeilen aus:
+            if (legacy == StatsApi.DisplayMode.KD) {
+                modes.add(StatsApi.DisplayMode.WIN_RATE_PERCENT);
+            }
+        }
+
+        config = new ModConfig(enabled, modes);
 
         // in StatsApi spiegeln
         StatsApi.ENABLED = config.enabled;
-        StatsApi.DISPLAY_MODE = config.displayMode;
+        synchronized (StatsApi.DISPLAY_MODES) {
+            StatsApi.DISPLAY_MODES.clear();
+            StatsApi.DISPLAY_MODES.addAll(config.displayModes);
+        }
 
-        // falls Datei noch nicht existiert -> schreiben
+        // falls Datei noch nicht existiert oder wir migriert haben -> schreiben
         save();
     }
 
@@ -49,7 +68,12 @@ public final class ConfigManager {
         try {
             Properties p = new Properties();
             p.setProperty("enabled", Boolean.toString(config.enabled));
-            p.setProperty("displayMode", config.displayMode.name());
+            p.setProperty("displayModes", joinModes(config.displayModes));
+
+            // optional: legacy key weiter schreiben, falls du abwärtskompatibel bleiben willst
+            // (nimmt einfach den "ersten" Mode)
+            StatsApi.DisplayMode first = config.displayModes.stream().findFirst().orElse(StatsApi.DisplayMode.KD);
+            p.setProperty("displayMode", first.name());
 
             try (OutputStream out = Files.newOutputStream(PATH)) {
                 p.store(out, "StatsReader config");
@@ -59,9 +83,39 @@ public final class ConfigManager {
         }
     }
 
-    public static void setMode(StatsApi.DisplayMode mode) {
-        config.displayMode = mode;
-        StatsApi.DISPLAY_MODE = mode;
+    // Setzt die komplette Liste (z.B. show kd wr)
+    public static void setModes(Set<StatsApi.DisplayMode> modes) {
+        if (modes == null || modes.isEmpty()) return;
+
+        config.displayModes.clear();
+        config.displayModes.addAll(modes);
+
+        synchronized (StatsApi.DISPLAY_MODES) {
+            StatsApi.DISPLAY_MODES.clear();
+            StatsApi.DISPLAY_MODES.addAll(modes);
+        }
+
+        save();
+    }
+
+    // Add/remove (z.B. add wr / remove kd)
+    public static void addMode(StatsApi.DisplayMode mode) {
+        if (mode == null) return;
+
+        config.displayModes.add(mode);
+        synchronized (StatsApi.DISPLAY_MODES) {
+            StatsApi.DISPLAY_MODES.add(mode);
+        }
+        save();
+    }
+
+    public static void removeMode(StatsApi.DisplayMode mode) {
+        if (mode == null) return;
+
+        config.displayModes.remove(mode);
+        synchronized (StatsApi.DISPLAY_MODES) {
+            StatsApi.DISPLAY_MODES.remove(mode);
+        }
         save();
     }
 
@@ -86,5 +140,29 @@ public final class ConfigManager {
         } catch (Exception ignored) {
             return def;
         }
+    }
+
+    private static Set<StatsApi.DisplayMode> parseModes(String s) {
+        Set<StatsApi.DisplayMode> set = new LinkedHashSet<>();
+        if (s == null || s.isBlank()) return set;
+
+        for (String token : s.split("[,\\s]+")) {
+            if (token.isBlank()) continue;
+            try {
+                set.add(StatsApi.DisplayMode.valueOf(token.trim().toUpperCase(Locale.ROOT)));
+            } catch (Exception ignored) {
+            }
+        }
+        return set;
+    }
+
+    private static String joinModes(Set<StatsApi.DisplayMode> modes) {
+        if (modes == null || modes.isEmpty()) return StatsApi.DisplayMode.KD.name();
+        StringBuilder sb = new StringBuilder();
+        for (StatsApi.DisplayMode m : modes) {
+            if (sb.length() > 0) sb.append(",");
+            sb.append(m.name());
+        }
+        return sb.toString();
     }
 }

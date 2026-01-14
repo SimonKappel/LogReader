@@ -1,5 +1,6 @@
 package com.example;
 
+import com.example.mixin.client.PlayerListHudAccessor;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -8,8 +9,9 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.example.StatsApi;
+import net.minecraft.scoreboard.ScoreboardDisplaySlot;
 
+import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,12 +19,16 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.util.Formatting;
 import net.minecraft.text.MutableText;
-
+import net.minecraft.scoreboard.ScoreboardObjective;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreboardEntry;
+import net.minecraft.scoreboard.Team;
 
 public class ExampleModClient implements ClientModInitializer {
 
@@ -73,18 +79,24 @@ public class ExampleModClient implements ClientModInitializer {
 		ClientSendMessageEvents.COMMAND.register(command -> {
 			String c = command.trim().toLowerCase();;
 			if (c.equals("stats") || c.startsWith("stats ") || c.startsWith("statsd ")) {
-				captureArmed = true;
-				captureActive = false;
-				lastLineAtMs = System.currentTimeMillis();
-				headerPlayer = null;
-				headerPeriod = null;
-				rawFields.clear();
+				//debugTabHeaderFooter();
+				//if(isInBedwarsTabNoMixin())
+				//{
+					captureArmed = true;
+					captureActive = false;
+					lastLineAtMs = System.currentTimeMillis();
+					headerPlayer = null;
+					headerPeriod = null;
+					rawFields.clear();
 
-				var client = MinecraftClient.getInstance();
-				if (client.player != null) {
-					chat("/stats erkannt – sammle Ausgabe…", Formatting.GRAY);
+					var client = MinecraftClient.getInstance();
+					if (client.player != null) {
+						chat("/stats erkannt – sammle Ausgabe…", Formatting.GRAY);
 
-				}
+					}
+
+				//}
+
 			}
 		});
 
@@ -123,6 +135,59 @@ public class ExampleModClient implements ClientModInitializer {
 		});
 
 	}
+
+	private static void debugTabHeaderFooter() {
+		Text header = getTabHeaderViaReflection();
+		Text footer = getTabFooterViaReflection();
+		System.out.println("[StatsReader] TAB header=" + (header == null ? "null" : "'" + header.getString() + "'"));
+		System.out.println("[StatsReader] TAB footer=" + (footer == null ? "null" : "'" + footer.getString() + "'"));
+	}
+	private static Text getTabHeaderViaReflection() {
+		try {
+			var client = MinecraftClient.getInstance();
+			if (client.inGameHud == null) return null;
+
+			Object hud = client.inGameHud.getPlayerListHud();
+
+			// Feldname in Yarn ist häufig "header" (kann sich ändern)
+			Field f = hud.getClass().getDeclaredField("header");
+			f.setAccessible(true);
+			return (Text) f.get(hud);
+		} catch (Throwable ignored) {
+			return null;
+		}
+	}
+
+	private static Text getTabFooterViaReflection() {
+		try {
+			var client = MinecraftClient.getInstance();
+			if (client.inGameHud == null) return null;
+
+			Object hud = client.inGameHud.getPlayerListHud();
+
+			Field f = hud.getClass().getDeclaredField("footer");
+			f.setAccessible(true);
+			return (Text) f.get(hud);
+		} catch (Throwable ignored) {
+			return null;
+		}
+	}
+
+	private static boolean isInBedwarsTabNoMixin() {
+		Text header = getTabHeaderViaReflection();
+		Text footer = getTabFooterViaReflection();
+
+		String h = header == null ? "" : header.getString().toLowerCase(Locale.ROOT);
+		String f = footer == null ? "" : footer.getString().toLowerCase(Locale.ROOT);
+
+		// auf deinem Screenshot steht "GommeHD.net Bedwars"
+		return h.contains("bedwars") || h.contains("bad wars")
+				|| f.contains("bedwars") || f.contains("bad wars");
+	}
+
+
+
+
 	private static MutableText prefix() {
 		return Text.literal("StatsReader").formatted(Formatting.AQUA)
 				.append(Text.literal(" » ").formatted(Formatting.DARK_GRAY));
@@ -344,11 +409,13 @@ public class ExampleModClient implements ClientModInitializer {
 
 		String mcVersion = mc.getGameVersion(); // z.B. 1.21.1
 		String modVersion = getModVersion();
+		String clientId = ClientId.get();
 
-		return "LogReader Mod"
+		return "StatsReader Mod"
 				+ ";self=" + self
 				+ ";mc=" + mcVersion
-				+ ";mod=" + modVersion;
+				+ ";mod=" + modVersion
+				+ ";cid=" + clientId;
 	}
 
 	private static String getModVersion() {
