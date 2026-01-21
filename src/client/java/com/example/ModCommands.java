@@ -22,6 +22,53 @@ public final class ModCommands {
 
             dispatcher.register(
                     ClientCommandManager.literal("statsreader")
+                            .executes(ctx -> {
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("Commands:").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader on").formatted(Formatting.GREEN))
+                                        .append(Text.literal(" - Tab Anzeige aktivieren").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader off").formatted(Formatting.RED))
+                                        .append(Text.literal(" - Tab Anzeige deaktivieren").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader notify").formatted(Formatting.AQUA))
+                                        .append(Text.literal(" - Status Chat-Benachrichtigungen").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader notify on|off|toggle").formatted(Formatting.AQUA))
+                                        .append(Text.literal(" - Chat-Benachrichtigungen ändern").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader list").formatted(Formatting.YELLOW))
+                                        .append(Text.literal(" - Alle verfügbaren Modes anzeigen").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader show <modes...>").formatted(Formatting.YELLOW))
+                                        .append(Text.literal(" - Setzt die angezeigten Modes (z.B. kd wr)").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader add <mode>").formatted(Formatting.YELLOW))
+                                        .append(Text.literal(" - Mode hinzufügen").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader remove <mode>").formatted(Formatting.YELLOW))
+                                        .append(Text.literal(" - Mode entfernen").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader period").formatted(Formatting.LIGHT_PURPLE))
+                                        .append(Text.literal(" - Zeigt aktuelle Period").formatted(Formatting.GRAY)));
+
+                                ctx.getSource().sendFeedback(prefix()
+                                        .append(Text.literal("/statsreader period <value>").formatted(Formatting.LIGHT_PURPLE))
+                                        .append(Text.literal(" - Setzt Period (" + allowedPeriods() + ")").formatted(Formatting.GRAY)));
+
+                                return 1;
+                            })
+
                             .then(ClientCommandManager.literal("on")
                                     .executes(ctx -> {
                                         ConfigManager.setEnabled(true);
@@ -38,6 +85,48 @@ public final class ModCommands {
                                         return 1;
                                     })
                             )
+                            .then(ClientCommandManager.literal("notify")
+                                    // /statsreader notify  -> zeigt aktuellen Status
+                                    .executes(ctx -> {
+                                        boolean cur = ConfigManager.isChatNotifyEnabled(); // neu in ConfigManager
+                                        ctx.getSource().sendFeedback(prefix().append(
+                                                Text.literal("Chat Benachrichtigungen: " + (cur ? "ON" : "OFF"))
+                                                        .formatted(cur ? Formatting.GREEN : Formatting.RED)
+                                        ));
+                                        return 1;
+                                    })
+
+                                    .then(ClientCommandManager.literal("on")
+                                            .executes(ctx -> {
+                                                ConfigManager.setChatNotifyEnabled(true);
+                                                ctx.getSource().sendFeedback(prefix()
+                                                        .append(Text.literal("Chat Benachrichtigungen: ON").formatted(Formatting.GREEN)));
+                                                return 1;
+                                            })
+                                    )
+                                    .then(ClientCommandManager.literal("off")
+                                            .executes(ctx -> {
+                                                ConfigManager.setChatNotifyEnabled(false);
+                                                ctx.getSource().sendFeedback(prefix()
+                                                        .append(Text.literal("Chat Benachrichtigungen: OFF").formatted(Formatting.RED)));
+                                                return 1;
+                                            })
+                                    )
+                                    .then(ClientCommandManager.literal("toggle")
+                                            .executes(ctx -> {
+                                                boolean cur = ConfigManager.isChatNotifyEnabled();
+                                                ConfigManager.setChatNotifyEnabled(!cur);
+
+                                                boolean now = !cur;
+                                                ctx.getSource().sendFeedback(prefix().append(
+                                                        Text.literal("Chat Benachrichtigungen: " + (now ? "ON" : "OFF"))
+                                                                .formatted(now ? Formatting.GREEN : Formatting.RED)
+                                                ));
+                                                return 1;
+                                            })
+                                    )
+                            )
+
                             .then(ClientCommandManager.literal("list")
                                     .executes(ctx -> {
                                         ctx.getSource().sendFeedback(prefix()
@@ -113,6 +202,38 @@ public final class ModCommands {
                                             })
                                     )
                             )
+                            .then(ClientCommandManager.literal("period")
+                                    // /statsreader period   -> zeigt aktuellen Wert
+                                    .executes(ctx -> {
+                                        String cur = ConfigManager.getPeriod(); // musst du in ConfigManager ergänzen
+                                        ctx.getSource().sendFeedback(prefix()
+                                                .append(Text.literal("Period: " + cur).formatted(Formatting.GRAY)));
+                                        return 1;
+                                    })
+                                    // /statsreader period <value>
+                                    .then(ClientCommandManager.argument("value", StringArgumentType.word())
+                                            .suggests(ModCommands::suggestPeriods)
+                                            .executes(ctx -> {
+                                                String v = StringArgumentType.getString(ctx, "value").trim().toLowerCase(Locale.ROOT);
+
+                                                if (!isAllowedPeriod(v)) {
+                                                    ctx.getSource().sendFeedback(prefix()
+                                                            .append(Text.literal("Unbekannt. Erlaubt: " + allowedPeriods())
+                                                                    .formatted(Formatting.RED)));
+                                                    return 0;
+                                                }
+
+                                                ConfigManager.setPeriod(v);
+                                                StatsApi.clearCacheAll();
+                                                ctx.getSource().sendFeedback(prefix()
+                                                        .append(Text.literal("Period gesetzt: " + v).formatted(Formatting.GREEN)));
+                                                return 1;
+                                            })
+                                    )
+
+
+                            )
+
 
             );
 
@@ -133,6 +254,33 @@ public final class ModCommands {
                 builder.suggest(replaceLastToken(builder.getRemaining(), last, name));
             }
         }
+        return builder.buildFuture();
+    }
+    private static boolean isAllowedPeriod(String v) {
+        if (v == null) return false;
+        v = v.trim().toLowerCase(Locale.ROOT);
+        return v.equals("newest")
+                || v.equals("30d")
+                || v.equals("alltime")
+                || v.equals("30d_then_alltime")
+                || v.equals("alltime_then_30d");
+    }
+
+    private static String allowedPeriods() {
+        return "newest, 30d, alltime, 30d_then_alltime, alltime_then_30d";
+    }
+
+
+    private static CompletableFuture<Suggestions> suggestPeriods(
+            com.mojang.brigadier.context.CommandContext<?> ctx,
+            SuggestionsBuilder builder
+    ) {
+        String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+
+        for (String p : new String[]{"newest","30d","alltime","30d_then_alltime","alltime_then_30d"}) {
+            if (p.startsWith(remaining)) builder.suggest(p);
+        }
+
         return builder.buildFuture();
     }
 

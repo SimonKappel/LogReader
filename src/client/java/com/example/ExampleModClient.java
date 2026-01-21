@@ -39,6 +39,7 @@ public class ExampleModClient implements ClientModInitializer {
 
 	// === API ===
 	private static final String ENDPOINT = "https://bedwarsdatabase.at/api/mcstats";
+	//private static final String ENDPOINT = "http://localhost:7041/api/mcstats";
 	private static final String API_KEY = ""; // optional (wenn du später auth willst)
 
 	private static final long HEADER_TIMEOUT_MS = 2500;   // war 4000
@@ -78,10 +79,12 @@ public class ExampleModClient implements ClientModInitializer {
 		// 1) /stats im eigenen Input erkennen (command kommt OHNE Slash)
 		ClientSendMessageEvents.COMMAND.register(command -> {
 			String c = command.trim().toLowerCase();;
-			if (c.equals("stats") || c.startsWith("stats ") || c.startsWith("statsd ")) {
+			if (c.equals("stats") || c.equals("statsall") || c.startsWith("stats ") || c.startsWith("statsall ") || c.startsWith("statsd ")) {
 				//debugTabHeaderFooter();
 				//if(isInBedwarsTabNoMixin())
 				//{
+				logRam("before_stats");
+
 					captureArmed = true;
 					captureActive = false;
 					lastLineAtMs = System.currentTimeMillis();
@@ -134,6 +137,15 @@ public class ExampleModClient implements ClientModInitializer {
 			}
 		});
 
+	}
+	private static void logRam(String tag) {
+		Runtime r = Runtime.getRuntime();
+		long used = (r.totalMemory() - r.freeMemory()) / 1024 / 1024;
+		long total = r.totalMemory() / 1024 / 1024;
+		long max = r.maxMemory() / 1024 / 1024;
+
+		LOGGER.info("[RAM][{}] Used={}MB | Total={}MB | Max={}MB",
+				tag, used, total, max);
 	}
 
 	private static void debugTabHeaderFooter() {
@@ -194,11 +206,20 @@ public class ExampleModClient implements ClientModInitializer {
 	}
 
 	private static void chat(String msg, Formatting color) {
+		// Chat-Notifications deaktiviert → nichts ausgeben
+		if (!ConfigManager.isChatNotifyEnabled()) {
+			return;
+		}
+
 		var client = MinecraftClient.getInstance();
 		if (client.player != null) {
-			client.player.sendMessage(prefix().append(Text.literal(msg).formatted(color)), false);
+			client.player.sendMessage(
+					prefix().append(Text.literal(msg).formatted(color)),
+					false
+			);
 		}
 	}
+
 	private static boolean hasAllFields() {
 		return rawFields.containsKey("Punkte")
 				&& rawFields.containsKey("Kills")
@@ -276,7 +297,7 @@ public class ExampleModClient implements ClientModInitializer {
 		Integer bedsDestroyed = parseIntDe(rawFields.get("Zerstörte Betten"));
 
 		// Minimal sanity
-		if (kills == null || deaths == null || kd == null || gamesPlayed == null) {
+		if (bedsDestroyed == null) {
 			LOGGER.info("Stats incomplete, not sending.");
 			return;
 		}
@@ -317,26 +338,31 @@ public class ExampleModClient implements ClientModInitializer {
 				.thenAccept(res -> {
 					LOGGER.info("API POST done: {} {}", res.statusCode(), res.body());
 
+					// ✅ Outdated / Upgrade required: Message kommt vom Backend
+					if (res.statusCode() == 426) {
+						String msg = res.body();
+						if (msg == null || msg.isBlank()) {
+							String minV = res.headers().firstValue("X-StatsReader-MinVersion").orElse("?");
+							msg = "Deine Mod-Version ist veraltet. Bitte update (min: " + minV + ").";
+						}
+						chat(msg, Formatting.RED);
+						return;
+					}
+
 					// nur bei Erfolg refreshen
 					if (res.statusCode() / 100 == 2 && playerForRefresh != null) {
 						StatsApi.invalidate(playerForRefresh);
 						StatsApi.tryFetchStatsAsync(playerForRefresh, true);
-
 					}
 
-					var client = MinecraftClient.getInstance();
-					if (client.player != null) {
-						chat("Gesendet (" + res.statusCode() + ")", Formatting.GREEN);
+					if (MinecraftClient.getInstance().player != null) {
+						if (res.statusCode() / 100 == 2)
+							chat("Gesendet ✓", Formatting.GREEN);
+						else
+							chat("API Antwort: " + res.statusCode(), Formatting.YELLOW);
 					}
 				})
-				.exceptionally(ex -> {
-					LOGGER.error("API POST failed", ex);
-					var client = MinecraftClient.getInstance();
-					if (client.player != null) {
-						chat("API Fehler: " + ex.getClass().getSimpleName(), Formatting.RED);
-					}
-					return null;
-				});
+		;
 
 	}
 
@@ -445,7 +471,7 @@ public class ExampleModClient implements ClientModInitializer {
 		if (p.contains("30")) return true;
 
 		// ALL / Insgesamt (je nach Server-Text)
-		if (p.contains("all") || p.contains("insgesamt") || p.contains("gesamt")) return true;
+		if (p.contains("insgesamt")) return true;
 
 		return false;
 	}

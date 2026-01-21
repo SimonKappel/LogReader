@@ -31,8 +31,8 @@ public final class StatsApi {
 
 
     // NEU: Stats Endpoint
-    private static final String STATS_ENDPOINT_TEMPLATE =
-            "https://bedwarsdatabase.at/api/players/%s/stats";
+    private static final String STATS_ENDPOINT_TEMPLATE = "https://bedwarsdatabase.at/api/players/%s/stats";
+    //private static final String STATS_ENDPOINT_TEMPLATE = "http://localhost:7041/api/players/%s/stats";
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -49,6 +49,12 @@ public final class StatsApi {
     // Wie oft pro Player max refreshen
     private static final long COOLDOWN_MS = 10_000;
 
+    public static void clearCacheAll() {
+        STATS_CACHE.clear();
+        STATS_UPDATED_MS.clear();
+        IN_FLIGHT.clear();
+        LAST_TRY_MS.clear();
+    }
 
     public enum DisplayMode {
         RANKING,
@@ -134,8 +140,19 @@ public final class StatsApi {
         if (IN_FLIGHT.putIfAbsent(playerName, true) != null) return;
         LAST_TRY_MS.put(playerName, now);
 
+        //String encoded = URLEncoder.encode(playerName, StandardCharsets.UTF_8);
+        //String url = String.format(STATS_ENDPOINT_TEMPLATE, encoded);
         String encoded = URLEncoder.encode(playerName, StandardCharsets.UTF_8);
+
+        String period = ConfigManager.getPeriod(); // legacy | 30d | all | 30d_then_all | all_then_30d
+
         String url = String.format(STATS_ENDPOINT_TEMPLATE, encoded);
+
+// nur anhängen, wenn NICHT legacy
+        if (period != null && !"legacy".equals(period)) {
+            url += "?period=" + URLEncoder.encode(period, StandardCharsets.UTF_8);
+        }
+
 
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(url))

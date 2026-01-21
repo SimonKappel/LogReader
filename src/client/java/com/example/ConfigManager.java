@@ -24,6 +24,7 @@ public final class ConfigManager {
     private ConfigManager() {}
 
     public static void load() {
+
         Properties p = new Properties();
 
         if (Files.exists(PATH)) {
@@ -36,6 +37,9 @@ public final class ConfigManager {
 
         boolean enabled = parseBool(p.getProperty("enabled"), true);
 
+        // ✅ NEU: Chat-Notify Toggle (default true)
+        boolean chatNotify = parseBool(p.getProperty("chatNotify"), true);
+
         // NEU: Multi-Modes (z.B. "KD,WIN_RATE_PERCENT")
         Set<StatsApi.DisplayMode> modes = parseModes(p.getProperty("displayModes"));
 
@@ -45,13 +49,15 @@ public final class ConfigManager {
             modes.add(legacy);
 
             // optional: wenn legacy KD ist, mach direkt KD+WR als default “upgrade”
-            // wenn du das nicht willst, kommentier die nächsten 2 Zeilen aus:
             if (legacy == StatsApi.DisplayMode.KD) {
                 modes.add(StatsApi.DisplayMode.WIN_RATE_PERCENT);
             }
         }
 
-        config = new ModConfig(enabled, modes);
+        String period = normalizePeriod(p.getProperty("period"), "newest");
+
+        // ✅ FIX: neuer ModConfig-Constructor (enabled, chatNotify, modes, period)
+        config = new ModConfig(enabled, chatNotify, modes, period);
 
         // in StatsApi spiegeln
         StatsApi.ENABLED = config.enabled;
@@ -68,10 +74,14 @@ public final class ConfigManager {
         try {
             Properties p = new Properties();
             p.setProperty("enabled", Boolean.toString(config.enabled));
-            p.setProperty("displayModes", joinModes(config.displayModes));
 
-            // optional: legacy key weiter schreiben, falls du abwärtskompatibel bleiben willst
-            // (nimmt einfach den "ersten" Mode)
+            // ✅ NEU: Chat-Notify speichern
+            p.setProperty("chatNotify", Boolean.toString(config.chatNotify));
+
+            p.setProperty("displayModes", joinModes(config.displayModes));
+            p.setProperty("period", normalizePeriod(config.period, "newest"));
+
+            // optional: legacy key weiter schreiben
             StatsApi.DisplayMode first = config.displayModes.stream().findFirst().orElse(StatsApi.DisplayMode.KD);
             p.setProperty("displayMode", first.name());
 
@@ -81,6 +91,45 @@ public final class ConfigManager {
         } catch (Exception e) {
             LOGGER.warn("Could not save config: {}", e.toString());
         }
+    }
+
+    // ✅ NEU: Getter/Setter für Notify (damit ModCommands & chat() compilen)
+    public static boolean isChatNotifyEnabled() {
+        return config.chatNotify;
+    }
+
+    public static void setChatNotifyEnabled(boolean v) {
+        config.chatNotify = v;
+        save();
+    }
+
+    public static String getPeriod() {
+        return normalizePeriod(config.period, "newest");
+    }
+
+    public static void setPeriod(String period) {
+        config.period = normalizePeriod(period, "newest");
+        save();
+    }
+
+    private static String normalizePeriod(String v, String def) {
+        if (v == null || v.isBlank()) return def;
+        v = v.trim().toLowerCase(Locale.ROOT);
+
+        // Migration / Aliase (alte Namen -> neue Namen)
+        v = switch (v) {
+            case "legacy" -> "newest";
+            case "all" -> "alltime";
+            case "30d_then_all" -> "30d_then_alltime";
+            case "all_then_30d" -> "alltime_then_30d";
+            default -> v;
+        };
+
+        // Nur neue Werte erlauben
+        return switch (v) {
+            case "newest", "30d", "alltime", "30d_then_alltime", "alltime_then_30d" -> v;
+            default -> def;
+        };
     }
 
     // Setzt die komplette Liste (z.B. show kd wr)
